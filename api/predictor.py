@@ -68,10 +68,22 @@ class SBDPredictor:
         """Return True nếu câu kết thúc bằng từ cần bổ ngữ → buộc INCOMPLETE."""
         return bool(_DANGLING_RE.search(text.strip()))
 
+    def _apply_overrides(self, text: str, p_complete: float, p_incomplete: float):
+        """Apply post-processing rules, return (p_complete, override_tag | None)."""
+        if _ACK_RE.match(text):
+            return max(p_complete, self.threshold + 0.01), "ack_word"
+        if p_complete >= self.threshold and _DANGLING_RE.search(text.strip()):
+            return min(p_incomplete, self.threshold - 0.01), "dangling_word"
+        return p_complete, None
+
     @torch.no_grad()
     def predict_one(self, text: str) -> dict:
-        t0 = time.perf_counter()
-        text = clean_asr_text(text)   # strip punctuation — ASR doesn't produce it
+        t_start = time.perf_counter()
+
+        text = clean_asr_text(text)
+
+        # ── Tokenize ──────────────────────────────────────────────────────────
+        t_tok = time.perf_counter()
         enc = self.tokenizer(
             text,
             max_length=self.max_len,
@@ -79,23 +91,19 @@ class SBDPredictor:
             truncation=True,
             return_tensors="pt",
         )
+        tokenize_ms = round((time.perf_counter() - t_tok) * 1000, 2)
+
+        # ── Model inference ───────────────────────────────────────────────────
+        t_inf = time.perf_counter()
         input_ids      = enc["input_ids"].to(self.device)
         attention_mask = enc["attention_mask"].to(self.device)
         logits = self.model(input_ids=input_ids, attention_mask=attention_mask).logits
         probs  = F.softmax(logits, dim=-1).squeeze().tolist()
-        ms = round((time.perf_counter() - t0) * 1000, 2)
+        inference_ms = round((time.perf_counter() - t_inf) * 1000, 2)
 
-        p_complete = probs[1]
-        overridden = None
+        total_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
-        if _ACK_RE.match(text):
-            # Câu xã giao ngắn → buộc COMPLETE
-            p_complete = max(probs[1], self.threshold + 0.01)
-            overridden = "ack_word"
-        elif p_complete >= self.threshold and _DANGLING_RE.search(text.strip()):
-            # Từ cuối là dangling word → buộc INCOMPLETE
-            p_complete = min(probs[0], self.threshold - 0.01)
-            overridden = "dangling_word"
+        p_complete, overridden = self._apply_overrides(text, probs[1], probs[0])
 
         result = {
             "text":            text,
@@ -103,16 +111,24 @@ class SBDPredictor:
             "is_complete":     p_complete >= self.threshold,
             "prob_complete":   round(p_complete, 4),
             "prob_incomplete": round(1 - p_complete, 4),
-            "latency_ms":      ms,
+            "latency": {
+                "tokenize_ms":  tokenize_ms,
+                "inference_ms": inference_ms,
+                "total_ms":     total_ms,
+            },
         }
         if overridden:
             result["override"] = overridden
         return result
 
     @torch.no_grad()
-    def predict_batch(self, texts: list[str]) -> list[dict]:
-        t0 = time.perf_counter()
+    def predict_batch(self, texts: list[str]) -> dict:
+        t_start = time.perf_counter()
+
         texts = [clean_asr_text(t) for t in texts]
+
+        # ── Tokenize ──────────────────────────────────────────────────────────
+        t_tok = time.perf_counter()
         enc = self.tokenizer(
             texts,
             max_length=self.max_len,
@@ -120,24 +136,41 @@ class SBDPredictor:
             truncation=True,
             return_tensors="pt",
         )
+        tokenize_ms = round((time.perf_counter() - t_tok) * 1000, 2)
+
+        # ── Model inference ───────────────────────────────────────────────────
+        t_inf = time.perf_counter()
         input_ids      = enc["input_ids"].to(self.device)
         attention_mask = enc["attention_mask"].to(self.device)
         logits = self.model(input_ids=input_ids, attention_mask=attention_mask).logits
         probs  = F.softmax(logits, dim=-1).tolist()
-        total_ms = round((time.perf_counter() - t0) * 1000, 2)
+        inference_ms = round((time.perf_counter() - t_inf) * 1000, 2)
+
+        total_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
         results = []
         for text, p in zip(texts, probs):
-            p_complete = p[1]
-            results.append({
+            p_complete, overridden = self._apply_overrides(text, p[1], p[0])
+            item = {
                 "text":            text,
                 "label":           "complete" if p_complete >= self.threshold else "incomplete",
                 "is_complete":     p_complete >= self.threshold,
                 "prob_complete":   round(p_complete, 4),
                 "prob_incomplete": round(p[0], 4),
-            })
-        results.append({"batch_latency_ms": total_ms})  # last item = timing
-        return results
+            }
+            if overridden:
+                item["override"] = overridden
+            results.append(item)
+
+        return {
+            "results": results,
+            "latency": {
+                "tokenize_ms":  tokenize_ms,
+                "inference_ms": inference_ms,
+                "total_ms":     total_ms,
+                "per_item_ms":  round(total_ms / len(texts), 2),
+            },
+        }
 
 
 # Module-level singleton — created when the FastAPI app starts

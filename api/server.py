@@ -153,7 +153,11 @@ def predict(req: PredictRequest):
       "is_complete": true,
       "prob_complete": 0.9712,
       "prob_incomplete": 0.0288,
-      "latency_ms": 9.4
+      "latency": {
+        "tokenize_ms": 1.2,
+        "inference_ms": 7.8,
+        "total_ms": 9.4
+      }
     }
     ```
     """
@@ -174,7 +178,21 @@ def predict_batch(req: BatchRequest):
 
     Request:  `{"texts": ["câu 1", "câu 2", ...]}`
 
-    Response: array kết quả + `batch_latency_ms` ở cuối.
+    Response:
+    ```json
+    {
+      "results": [
+        {"text": "câu 1", "label": "complete", "is_complete": true, "prob_complete": 0.97, "prob_incomplete": 0.03},
+        {"text": "câu 2", "label": "incomplete", "is_complete": false, "prob_complete": 0.03, "prob_incomplete": 0.97}
+      ],
+      "latency": {
+        "tokenize_ms": 1.5,
+        "inference_ms": 44.2,
+        "total_ms": 46.8,
+        "per_item_ms": 23.4
+      }
+    }
+    ```
     """
     predictor = get_predictor()
     if predictor is None:
