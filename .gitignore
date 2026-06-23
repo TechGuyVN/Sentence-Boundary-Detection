@@ -5,8 +5,10 @@ __pycache__/
 data/raw/
 data/processed/
 exports/
-runs/
 *.onnx
+# Exclude intermediate checkpoints, keep final model
+runs/sbd_model/checkpoint-*
+runs/sbd_model/logs/
 wandb/
 .DS_Store
 *.egg-info/
