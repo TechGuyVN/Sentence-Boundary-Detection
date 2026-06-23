@@ -1,0 +1,38 @@
+[Unit]
+Description=SBD — Sentence Boundary Detection API
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sbd
+Group=sbd
+WorkingDirectory=/opt/sbd
+
+# Env vars — chỉnh lại nếu cần
+Environment="SBD_MODEL_DIR=/opt/sbd/runs/sbd_model/final"
+Environment="SBD_THRESHOLD=0.65"
+Environment="SBD_MAX_BATCH=32"
+Environment="LOG_LEVEL=INFO"
+
+ExecStart=/opt/sbd/.venv/bin/uvicorn api.server:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info \
+    --no-access-log
+
+# Tự khởi động lại nếu crash
+Restart=always
+RestartSec=5
+
+# Resource limits
+LimitNOFILE=65536
+
+# Log ra journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sbd-api
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,69 @@
+# ─── Model ──────────────────────────────────────────────────────────────────
+model:
+  # Option A — Vietnamese-specific, best accuracy (DEFAULT)
+  name: "vinai/phobert-base"
+  # Option B — multilingual DistilBERT, smaller & faster
+  # name: "distilbert-base-multilingual-cased"
+  # Option C — multilingual BERT, balanced
+  # name: "google-bert/bert-base-multilingual-cased"
+  num_labels: 2           # 0=incomplete, 1=complete
+  max_seq_len: 128        # callbot utterances are short
+  dropout: 0.1
+
+# ─── Data ────────────────────────────────────────────────────────────────────
+data:
+  train_file: "data/processed/train.jsonl"
+  val_file:   "data/processed/val.jsonl"
+  test_file:  "data/processed/test.jsonl"
+  label_map:
+    incomplete: 0
+    complete: 1
+
+# ─── Data generation ─────────────────────────────────────────────────────────
+generation:
+  openai_model: "gpt-4o-mini"    # cheap & fast for synthetic data
+  n_samples_train: 3000
+  n_samples_val:   500
+  n_samples_test:  300
+  batch_size: 20                 # examples per API call
+  temperature: 0.9
+  scenarios:
+    # ── Call center (inbound / outbound) ──────────────────────
+    - "call center inbound: khách hàng gọi vào phản ánh sự cố dịch vụ internet"
+    - "call center inbound: khách hàng hỏi hóa đơn điện nước, thắc mắc về số tiền phải trả"
+    - "call center outbound: nhân viên gọi ra hỏi thăm sau dịch vụ bảo hành, sửa chữa"
+    - "call center outbound: nhắc lịch hẹn khám bệnh, tái khám"
+    - "call center xử lý khiếu nại: khách hàng bức xúc về thái độ nhân viên hoặc chất lượng sản phẩm"
+    # ── Khảo sát chất lượng dịch vụ (CSAT / NPS) ─────────────
+    - "khảo sát NPS: khách hàng đánh giá mức độ hài lòng về dịch vụ ngân hàng từ 1-10"
+    - "khảo sát CSAT: khách hàng phản hồi chất lượng cuộc gọi hỗ trợ vừa kết thúc"
+    - "khảo sát chất lượng: khách hàng góp ý về trải nghiệm mua sắm tại siêu thị"
+    - "khảo sát sau dùng thử: khách hàng nhận xét về sản phẩm dùng thử miễn phí"
+    # ── Telesale ──────────────────────────────────────────────
+    - "telesale bảo hiểm nhân thọ: tư vấn gói bảo hiểm cho gia đình"
+    - "telesale thẻ tín dụng ngân hàng: mời mở thẻ, giới thiệu ưu đãi hoàn tiền"
+    - "telesale vay mua nhà: giới thiệu gói vay lãi suất ưu đãi"
+    - "telesale khóa học online: mời tham gia khóa học kỹ năng mềm, lập trình"
+    - "telesale sản phẩm sức khỏe: tư vấn thực phẩm chức năng, vitamin"
+
+# ─── Training ────────────────────────────────────────────────────────────────
+training:
+  output_dir: "runs/sbd_model"
+  num_epochs: 5
+  train_batch_size: 32
+  eval_batch_size: 64
+  learning_rate: 2e-5
+  warmup_ratio: 0.1
+  weight_decay: 0.01
+  eval_strategy: "epoch"
+  save_strategy: "epoch"
+  load_best_model_at_end: true
+  metric_for_best_model: "f1"
+  fp16: false                    # set true if CUDA available
+  seed: 42
+
+# ─── Inference ───────────────────────────────────────────────────────────────
+inference:
+  threshold: 0.65               # probability threshold for "complete"
+  # Lower → more sensitive (cuts turn earlier)
+  # Higher → more patient (waits longer)

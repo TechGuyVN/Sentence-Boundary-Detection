@@ -1,0 +1,16 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+data/raw/
+data/processed/
+exports/
+runs/
+*.onnx
+wandb/
+.DS_Store
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
