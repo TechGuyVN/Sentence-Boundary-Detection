@@ -12,8 +12,44 @@ from pathlib import Path
 # ASR không sinh dấu câu — strip trước khi inference để tránh bias từ model
 _PUNCT_STRIP_RE = re.compile(r"[.!?,;:\"'()\[\]{}\-–—…]")
 
+# ASR phiên âm tiếng Anh → normalize về dạng chuẩn trước khi inference
+# Giúp model nhận đúng các từ bị ASR đọc sai âm
+_NORMALIZE_MAP = {
+    r"\bô\s*kê\b":      "ok",
+    r"\bồ\s*kê\b":      "ok",
+    r"\bô\s*cê\b":      "ok",
+    r"\bo\s*kê\b":      "ok",
+    r"\boke\b":         "ok",
+    r"\bokay\b":        "ok",
+    r"\bcon\s*phơm\b":  "confirm",
+    r"\bcăn\s*sen\b":   "cancel",
+    r"\bcăn\s*xồ\b":    "cancel",
+    r"\bcần\s*sồ\b":    "cancel",
+    r"\bcần\s*sen\b":   "cancel",
+    r"\bchéc\b":        "check",
+    r"\búp\s*đết\b":    "update",
+    r"\bsắp\s*mít\b":   "submit",
+    r"\bvê\s*ri\s*phai\b": "verify",
+    r"\bây\s*pi\s*ai\b": "api",
+    r"\ba\s*p\s*i\b":   "api",
+    r"\bphí\s*nít\b":   "finish",
+    r"\bphí\s*ních\b":  "finish",
+    r"\bcom\s*pờ\s*lít\b": "complete",
+    r"\bđơn\b(?=\s+(em|anh|chị|bạn))": "done",
+    r"\bđan\b(?=\s+rồi)":              "done",
+    r"\bdét\b":         "yes",
+    r"\byeah\b":        "yes",
+    r"\byep\b":         "yes",
+}
+_NORM_PATTERNS = [(re.compile(p, re.IGNORECASE | re.UNICODE), r) for p, r in _NORMALIZE_MAP.items()]
+
 def clean_asr_text(text: str) -> str:
+    # 1. Strip punctuation
     text = _PUNCT_STRIP_RE.sub(" ", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    # 2. Normalize ASR English phonetics
+    for pattern, replacement in _NORM_PATTERNS:
+        text = pattern.sub(replacement, text)
     return re.sub(r"\s{2,}", " ", text).strip()
 
 import torch
@@ -36,11 +72,15 @@ _DANGLING_RE = re.compile(
 # (xã giao 1 từ, đồng ý ngắn, kết thúc lịch sự)
 _ACK_RE = re.compile(
     r"""(?ix)^\s*(
-        dạ | vâng | ừ | ok | okay | rồi | thôi | xong |
+        dạ | vâng | ừ | ok | okay | oke | yes | yeah | yep |
+        rồi | thôi | xong | done | finish | complete |
         được | cũng\s+được | thôi\s+được | ừ\s+được | ừ\s+cũng\s+được |
-        dạ\s+rồi | vâng\s+rồi | ok\s+rồi | thôi\s+thì\s+thôi |
-        không\s+cần | không\s+sao | không\s+cần\s+đâu
-    )\s*[.!,]?\s*$""",
+        dạ\s+rồi | dạ\s+được | dạ\s+đúng\s+rồi | dạ\s+chính\s+xác |
+        vâng\s+rồi | ok\s+rồi | thôi\s+thì\s+thôi |
+        không\s+cần | không\s+sao | không\s+cần\s+đâu |
+        ô\s+kê | ô\s+kê\s+rồi | ô\s+kê\s+nha | ô\s+kê\s+vậy\s+nhé |
+        đúng\s+rồi | chính\s+xác | chuẩn\s+rồi
+    )\s*(em|anh|chị|bạn)?\s*$""",
     re.UNICODE,
 )
 
